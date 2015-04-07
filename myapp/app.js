@@ -20,31 +20,73 @@ client.on("error", function(err) {
 
 var longurl;
 
+var fullurl = function(longurl, callback) {
     client.hget("sort1", "longurl", function(err, response) {
         callback(err, response);
     });
 };
 
+function generator() {
     var temp = Date.now();
     return (temp.toString(36));
 
 }
 app.post('/getUrl', function(req, res) {
     var url = req.body.url1;
+    var index = url.indexOf("localhost:3000");
+    if (index > -1 && index < 8) {
+        //sorturl
         client.hget(url, "longurl", function(err, response) {
             res.json({
                 "url": response
             });
 
-// production error handler
-// no stacktraces leaked to user
-app.use(function(err, req, res, next) {
-    res.status(err.status || 500);
-    res.render('error', {
-        message: err.message,
-        error: {}
-    });
+        });
+    } else {
+        //longurl
+        client.hget(url, "sorturl", function(err, response) {
+            if (response === null) {
+                //LongUrl not yet exist
+                //create new url 
+                var sorturl = generator();
+                sorturl = "localhost:3000/" + sorturl;
+                client.hset(url, "sorturl", sorturl, redis.print);
+                client.hset(sorturl, "longurl", url, redis.print);
+                client.zincrby("views", 1, sorturl, redis.print);
+                res.json({
+                    "url": sorturl
+                });
+            } else {
+                //LongUrl already exital
+                res.json({
+                    "url": response
+                });
+            }
+        });
+
+    }
+
+
 });
+app.get('/gettop', function(req, res) {
 
+    client.zrevrangebyscore("views", "+inf", 0, "limit", 0, 10, function(err, response) {
+        res.json({
+            "top": response
+        });
+    });
 
-module.exports = app;
+});
+app.get('/:url', function(req, res) {
+    var url = req.params.url;
+    url = "localhost:3000/" + url;
+    client.hget(url, "longurl", function(err, response) {
+        if (response === null) {
+            res.status(404).send("Url not exist");
+        } else {
+            client.zincrby("views", 1, url, redis.print);
+            res.redirect(response);
+        }
+    });
+
+});
